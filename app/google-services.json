@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "985880428534",
+    "project_id": "uth-auth-9bbc8",
+    "storage_bucket": "uth-auth-9bbc8.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:985880428534:android:72ebf908356e18d7f151d7",
+        "android_client_info": {
+          "package_name": "com.example.uthauth"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "985880428534-42bqjbj2amcadllkk674vpu2g7hg667l.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.uthauth",
+            "certificate_hash": "0df37340df0da3c7623b0c0d4170cb4cf86b3793"
+          }
+        },
+        {
+          "client_id": "985880428534-nusq959sceojqrkkgcpmn2h4knrn02bc.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCovVpbo7_jFYIuw2XjGPaUBTGsxTUVUaM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "985880428534-nusq959sceojqrkkgcpmn2h4knrn02bc.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
