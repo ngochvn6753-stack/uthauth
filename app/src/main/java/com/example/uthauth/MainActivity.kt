@@ -51,10 +51,43 @@ import com.example.uthauth.ui.theme.UthauthTheme
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.text.style.TextOverflow
+import java.util.Calendar
+import android.app.DatePickerDialog
+import androidx.compose.foundation.horizontalScroll
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import android.Manifest
+import android.os.Build
+import androidx.activity.result.contract.ActivityResultContracts
+
 
 class MainActivity : ComponentActivity() {
+    private val notificationPermissionLauncher =
+        registerForActivityResult(
+            ActivityResultContracts.RequestPermission()
+        ) { granted ->
+
+        }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(
+                Manifest.permission.POST_NOTIFICATIONS
+            ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(
+                Manifest.permission.POST_NOTIFICATIONS
+            )
+        }
+
+
         setContent {
             UthauthTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
@@ -71,6 +104,18 @@ fun AppNav() {
     val vm: AuthViewModel = viewModel()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var selectedTask by remember{
+        mutableStateOf<Task?>(null)
+    }
+    val tasks = remember {mutableStateListOf<Task> ()}
+    DisposableEffect(Unit) {
+        val stop = TaskRepo.listen { list ->
+            tasks.clear()
+            tasks.addAll(list)
+        }
+
+        onDispose { stop() }
+    }
     val start = if (vm.currentUser() != null) "home" else "login"
 
     NavHost(navController = nav, startDestination = start) {
@@ -81,9 +126,16 @@ fun AppNav() {
         }
         composable("home") {
             val user = vm.currentUser()
+
             HomeScreen(
                 name = user?.displayName ?: "",
-                onProfile = { nav.navigate("profile") }
+                onProfile = {
+                    nav.navigate("profile")
+                },
+                onTaskClick = { task ->
+                    selectedTask = task
+                    nav.navigate("task_detail")
+                }
             )
         }
         composable("profile") {
@@ -91,6 +143,7 @@ fun AppNav() {
             ProfileScreen(
                 name = user?.displayName ?: "",
                 email = user?.email ?: "",
+                tasks = tasks,
                 onBack = { nav.popBackStack() },
                 onLogout = {
                     scope.launch {
@@ -106,7 +159,48 @@ fun AppNav() {
                 }
             )
         }
+        composable ("task_detail") {
+            selectedTask?.let{ task ->
+                TaskDetailScreen(
+                    task = task,
+                    onBack = {
+                        nav.popBackStack()
+                    }
+                )
+            }
+        }
     }
+
+
+
+//    Button(
+//        onClick = {
+//            val calendar = java.util.Calendar.getInstance().apply {
+//                add(java.util.Calendar.MINUTE, 2)
+//            }
+//
+//            val date = java.text.SimpleDateFormat(
+//                "dd/MM/yyyy",
+//                java.util.Locale.getDefault()
+//            ).format(calendar.time)
+//
+//            val time = java.text.SimpleDateFormat(
+//                "HH:mm",
+//                java.util.Locale.getDefault()
+//            ).format(calendar.time)
+//
+//            TaskAlarmScheduler.schedule(
+//                context = context,
+//                taskId = "test-reminder",
+//                title = "Thông báo thử từ UTH SmartTasks",
+//                date = date,
+//                time = time
+//            )
+//        }
+//    ) {
+//        Text("🔔 Thử thông báo")
+//    }
+
 }
 
 
@@ -278,22 +372,24 @@ fun LoginScreen(vm: AuthViewModel, onLoggedIn: () -> Unit) {
         }
     }
 }
-
-
-
-data class Task(val title: String, val tag: String, val time: String, val done: Boolean)
+data class Task(
+    val title: String = "",
+    val tag: String = "",
+    val time: String = "",
+    val date: String = "",
+    val done: Boolean = false,
+    val id: String = "",
+    val completedAt: Long = 0L
+)
 @Composable
-fun HomeTab(name: String, tasks: MutableList<Task>, onProfile: () -> Unit, onSeeAll: () -> Unit) {
+fun HomeTab(
+    name: String,
+    tasks: MutableList<Task>,
+    onProfile: () -> Unit,
+    onSeeAll: () -> Unit,
+    onTaskClick: (Task) -> Unit
+){
     val blue = Color(0xFF3355FF)
-//    val tasks = remember {
-//        mutableStateListOf(
-//            Task("Tập thể dục 30 phút", "Cuộc sống", "06:30", true),
-//            Task("Nộp bài tập Lập trình thiết bị di động", "Học tập", "09:00", true),
-//            Task("Ôn tập chương 3", "Học tập", "14:00", false),
-//            Task("Đi chợ", "Cuộc sống", "17:30", false)
-//        )
-//    }
-
     val doneCount = tasks.count { it.done }
     val percent = if (tasks.isEmpty()) 0 else doneCount * 100 / tasks.size
     val message = when {
@@ -301,6 +397,20 @@ fun HomeTab(name: String, tasks: MutableList<Task>, onProfile: () -> Unit, onSee
         percent >= 50 -> "Đã hơn nửa chặng rồi, cố lên!"
         else -> "Bắt đầu thôi nào!"
     }
+    var greeting by remember { mutableStateOf(AppConfig.greeting()) }
+    LaunchedEffect(Unit) {
+        AppConfig.fetch { greeting = AppConfig.greeting() }
+    }
+    val context = LocalContext.current
+    val categories = listOf(
+        Triple("🎓", "Học tập", 0),
+        Triple("🏠", "Cuộc sống", 0),
+        Triple("💼", "Làm việc", 0),
+        Triple("💪", "Sức khỏe", 0),
+        Triple("🎮", "Giải trí", 0),
+        Triple("📌", "Khác", 0)
+    )
+
 
     Box(Modifier.fillMaxSize()) {
         Column(
@@ -323,8 +433,7 @@ fun HomeTab(name: String, tasks: MutableList<Task>, onProfile: () -> Unit, onSee
                 Spacer(Modifier.width(12.dp))
                 Column {
                     Text("Hôm nay", fontSize = 12.sp, color = Color.Gray)
-                    Text("Chào $name!", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                }
+                    Text("$greeting $name!", fontSize = 20.sp, fontWeight = FontWeight.Bold)                }
             }
             Spacer(Modifier.height(20.dp))
 
@@ -356,37 +465,66 @@ fun HomeTab(name: String, tasks: MutableList<Task>, onProfile: () -> Unit, onSee
             }
             Spacer(Modifier.height(16.dp))
 
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                for (tag in listOf("Học tập", "Cuộc sống")) {
-                    val isStudy = tag == "Học tập"
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = Color.White),
-                        border = BorderStroke(1.dp, Color(0xFFE0E0E0)),
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.weight(1f)
+
+            Column(
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                categories.chunked(3).forEach { rowItems ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Column(Modifier.padding(16.dp)) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .background(
-                                        if (isStudy) Color(0xFFE3E9FF) else Color(0xFFFFE8D1),
-                                        RoundedCornerShape(10.dp)
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(if (isStudy) "🎓" else "🏠", fontSize = 18.sp)
+                        rowItems.forEach { (emoji, category, _) ->
+                            val count = tasks.count {
+                                it.tag == category && !it.done
                             }
-                            Spacer(Modifier.height(12.dp))
-                            Text(tag, fontWeight = FontWeight.Bold)
-                            Text(
-                                "${tasks.count { it.tag == tag && !it.done }} việc còn lại",
-                                fontSize = 12.sp, color = Color.Gray
-                            )
+
+                            Card(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(125.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = Color.White
+                                ),
+                                border = BorderStroke(
+                                    1.dp,
+                                    Color(0xFFE0E0E0)
+                                ),
+                                shape = RoundedCornerShape(14.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(10.dp)
+                                ) {
+                                    Text(
+                                        text = emoji,
+                                        fontSize = 22.sp
+                                    )
+
+                                    Spacer(Modifier.height(8.dp))
+
+                                    Text(
+                                        text = category,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+
+                                    Spacer(Modifier.height(6.dp))
+
+                                    Text(
+                                        text = "$count việc còn lại",
+                                        fontSize = 11.sp,
+                                        color = Color.Gray,
+                                        maxLines = 2
+                                    )
+                                }
+                            }
                         }
                     }
                 }
             }
+
             Spacer(Modifier.height(20.dp))
 
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -395,8 +533,19 @@ fun HomeTab(name: String, tasks: MutableList<Task>, onProfile: () -> Unit, onSee
             }
             Spacer(Modifier.height(8.dp))
 
-            for ((index, task) in tasks.withIndex()) {
-                TaskItem(task) { tasks[index] = task.copy(done = !task.done) }
+            for (task in tasks) {
+                Box(
+                    modifier = Modifier.clickable {
+                        onTaskClick(task)
+                    }
+                ) {
+                    TaskItem(task) {
+                        TaskRepo.toggle(context, task)
+                    }
+                }
+            }
+            if (tasks.isEmpty()) {
+                Text("Chưa có việc nào, bấm + để thêm", color = Color.Gray)
             }
         }
 
@@ -404,22 +553,34 @@ fun HomeTab(name: String, tasks: MutableList<Task>, onProfile: () -> Unit, onSee
     }
 }
 @Composable
-fun HomeScreen(name: String, onProfile: () -> Unit) {
-    val tasks = remember {
-        mutableStateListOf(
-            Task("Tập thể dục 30 phút", "Cuộc sống", "06:30", true),
-            Task("Nộp bài tập Lập trình thiết bị di động", "Học tập", "09:00", true),
-            Task("Ôn tập chương 3", "Học tập", "14:00", false),
-            Task("Đi chợ", "Cuộc sống", "17:30", false)
-        )
-    }
+fun HomeScreen(
+    name: String,
+    onProfile: () -> Unit,
+    onTaskClick: (Task) -> Unit) {
+    val tasks = remember { mutableStateListOf<Task>() }
     var tab by remember { mutableIntStateOf(0) }
     var showAdd by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    DisposableEffect(Unit) {
+        val stop = TaskRepo.listen { list ->
+            tasks.clear()
+            tasks.addAll(list)
+        }
+        onDispose { stop() }
+    }
 
     Box(Modifier.fillMaxSize()) {
         when (tab) {
-            0 -> HomeTab(name, tasks, onProfile, onSeeAll = { tab = 1 })
-            1 -> ListTab(tasks)
+            0 -> HomeTab(
+                name = name,
+                tasks = tasks,
+                onProfile = onProfile,
+                onSeeAll = { tab = 1 },
+                onTaskClick = onTaskClick
+            )            1 -> ListTab(
+                tasks = tasks,
+                onTaskClick = onTaskClick)
             2 -> NotifTab(tasks)
             3 -> SettingsTab(onProfile)
         }
@@ -434,67 +595,299 @@ fun HomeScreen(name: String, onProfile: () -> Unit) {
     if (showAdd) {
         AddTaskDialog(
             onDismiss = { showAdd = false },
-            onAdd = { tasks.add(it); showAdd = false }
+            onAdd = { task ->
+                TaskRepo.add(
+                    context = context,
+                    task = task
+                )
+                showAdd = false
+            }
         )
     }
 }
+
 @Composable
-fun ListTab(tasks: MutableList<Task>) {
+fun ListTab(
+    tasks: MutableList<Task>,
+    onTaskClick: (Task) -> Unit
+) {
     var filter by remember { mutableIntStateOf(0) }
+    var search by remember { mutableStateOf("") }
+    var selectedCategory by remember {
+        mutableStateOf("Tất cả")
+    }
+    val context = LocalContext.current
     val options = listOf("Tất cả", "Chưa xong", "Đã xong")
-    val shown = tasks.withIndex().filter { (_, t) ->
-        filter == 0 || (filter == 1 && !t.done) || (filter == 2 && t.done)
+    val categories = listOf("Tất cả",
+        "Học tập",
+        "Cuộc sống",
+        "Làm việc",
+        "Sức khỏe",
+        "Giải trí",
+        "Khác")
+
+    val shown = tasks.filter { task ->
+        val matchStatus = when (filter) {
+            1 -> !task.done
+            2 -> task.done
+            else -> true
+        }
+
+        val matchSearch = task.title.contains(
+            search,
+            ignoreCase = true
+        ) || task.tag.contains(
+            search,
+            ignoreCase = true
+        ) || task.time.contains(
+            search,
+            ignoreCase = true
+        )
+
+        val matchCategory =
+            selectedCategory == "Tất cả" ||
+                    task.tag == selectedCategory
+
+        matchStatus && matchSearch && matchCategory
     }
 
+    val pendingTasks = shown.filter { !it.done }
+    val completedTasks = shown.filter { it.done }
+
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-            .padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 110.dp)
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(
+                start = 24.dp,
+                end = 24.dp,
+                top = 24.dp,
+                bottom = 110.dp
+            )
     ) {
-        Text("Danh sách việc", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            for ((i, label) in options.withIndex()) {
-                Chip(label, filter == i) { filter = i }
+        Text(
+            text = "Danh sách công việc",
+            fontSize = 22.sp,
+            fontWeight = FontWeight.Bold
+        )
+
+        Spacer(Modifier.height(16.dp))
+
+        OutlinedTextField(
+            value = search,
+            onValueChange = { search = it },
+            placeholder = { Text("Tìm công việc...") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+
+        Spacer(Modifier.height(16.dp))
+
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            categories.forEach { category ->
+                Chip(
+                    category,
+                    selectedCategory == category
+                ) {
+                    selectedCategory = category
+                }
             }
         }
+
+
         Spacer(Modifier.height(12.dp))
 
-        for ((index, task) in shown) {
-            TaskItem(task) { tasks[index] = task.copy(done = !task.done) }
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            options.forEachIndexed { index, label ->
+                Chip(label, filter == index) {
+                    filter = index
+                }
+            }
         }
-        if (shown.isEmpty()) Text("Không có việc nào", color = Color.Gray)
-    }
-}
 
-@Composable
-fun NotifTab(tasks: List<Task>) {
-    val pending = tasks.filter { !it.done }
+        Spacer(Modifier.height(24.dp))
 
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-            .padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 110.dp)
-    ) {
-        Text("Thông báo", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(12.dp))
+        // Nhóm CẦN LÀM
+        if (filter != 2) {
+            Text(
+                text = "CẦN LÀM (${pendingTasks.size})",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.Gray
+            )
 
-        for (task in pending) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                border = BorderStroke(1.dp, Color(0xFFE0E0E0)),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
-            ) {
-                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("🔔", fontSize = 20.sp)
-                    Spacer(Modifier.width(12.dp))
-                    Column {
-                        Text("Sắp tới: ${task.title}")
-                        Text("Lúc ${task.time} · ${task.tag}", fontSize = 12.sp, color = Color.Gray)
+            Spacer(Modifier.height(12.dp))
+
+            if (pendingTasks.isEmpty()) {
+                Text(
+                    text = "Không có công việc cần làm",
+                    color = Color.Gray
+                )
+            } else {
+                pendingTasks.forEach { task ->
+                    Box(
+                        modifier = Modifier.clickable {
+                            onTaskClick(task)
+                        }
+                    ) {
+                        TaskItem(task) {
+                            TaskRepo.toggle(context, task)
+                        }
                     }
                 }
             }
         }
-        if (pending.isEmpty()) Text("Không có thông báo mới", color = Color.Gray)
+
+        Spacer(Modifier.height(24.dp))
+
+        // Nhóm ĐÃ XONG
+        if (filter != 1) {
+            Text(
+                text = "ĐÃ XONG (${completedTasks.size})",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.Gray
+            )
+
+            Spacer(Modifier.height(12.dp))
+
+            if (completedTasks.isEmpty()) {
+                Text(
+                    text = "Chưa có công việc hoàn thành",
+                    color = Color.Gray
+                )
+            } else {
+                completedTasks.forEach { task ->
+                    Box(
+                        modifier = Modifier.clickable {
+                            onTaskClick(task)
+                        }
+                    ) {
+                        TaskItem(task) {
+                            TaskRepo.toggle(context, task)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+@Composable
+fun NotifTab(tasks: List<Task>) {
+    val pending = tasks.filter { !it.done }
+    val calendar = Calendar.getInstance()
+    val nowMinutes = calendar.get(Calendar.HOUR_OF_DAY) * 60 +
+            calendar.get(Calendar.MINUTE)
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(
+                start = 24.dp,
+                end = 24.dp,
+                top = 24.dp,
+                bottom = 110.dp
+            )
+    ) {
+        Text(
+            text = "Thông báo",
+            fontSize = 22.sp,
+            fontWeight = FontWeight.Bold
+        )
+
+        Spacer(Modifier.height(16.dp))
+
+        if (pending.isEmpty()) {
+            Text(
+                text = "Không có công việc cần nhắc",
+                color = Color.Gray
+            )
+        }
+
+        pending.forEach { task ->
+
+            val formatter = SimpleDateFormat(
+                "dd/MM/yyyy HH:mm",
+                Locale.getDefault()
+            ).apply {
+                isLenient = false
+            }
+
+            val taskDateTime = try {
+                if (task.date.isNotBlank()) {
+                    formatter.parse("${task.date} ${task.time}")
+                } else {
+                    null
+                }
+            } catch (e: Exception) {
+                null
+            }
+
+            val isOverdue = taskDateTime != null &&
+                    taskDateTime.before(Date())
+
+
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 5.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = Color.White
+                ),
+                border = BorderStroke(
+                    1.dp,
+                    Color(0xFFE0E0E0)
+                )
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (isOverdue) "⏰" else "🔔",
+                        fontSize = 22.sp
+                    )
+
+                    Spacer(Modifier.width(12.dp))
+
+                    Column {
+
+                        Text(
+                            text = when {
+                                taskDateTime == null ->
+                                    "Chưa tới hạn: ${task.title}"
+                                isOverdue ->
+                                    "Quá hạn: ${task.title}"
+                                else ->
+                                    "Sắp tới: ${task.title}"
+                            },
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+
+                        Spacer(Modifier.height(4.dp))
+
+                        Text(
+                            text = "${task.date.ifBlank { "Chưa có ngày" }} · ${task.time} · ${task.tag}",                            fontSize = 12.sp,
+                            color = Color.Gray
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -530,14 +923,33 @@ fun SettingsTab(onProfile: () -> Unit) {
                 Switch(checked = remind, onCheckedChange = { remind = it })
             }
         }
+        Spacer(Modifier.height(8.dp))
+        Button(onClick = { throw RuntimeException("Test Crashlytics") }) {
+            Text("Test crash")
+        }
     }
 }
 
+
 @Composable
-fun AddTaskDialog(onDismiss: () -> Unit, onAdd: (Task) -> Unit) {
+fun AddTaskDialog(
+    onDismiss: () -> Unit,
+    onAdd: (Task) -> Unit
+) {
     var title by remember { mutableStateOf("") }
     var time by remember { mutableStateOf("08:00") }
+    val context = LocalContext.current
+
+    var date by remember {
+        mutableStateOf(
+            java.text.SimpleDateFormat(
+                "dd/MM/yyyy",
+                java.util.Locale.getDefault()
+            ).format(java.util.Date())
+        )
+    }
     var tag by remember { mutableStateOf("Học tập") }
+    var showTimePicker by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -545,30 +957,137 @@ fun AddTaskDialog(onDismiss: () -> Unit, onAdd: (Task) -> Unit) {
         text = {
             Column {
                 OutlinedTextField(
-                    value = title, onValueChange = { title = it },
-                    label = { Text("Tên việc") }, singleLine = true
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Tên việc") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
                 )
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = time, onValueChange = { time = it },
-                    label = { Text("Giờ (ví dụ 08:00)") }, singleLine = true
-                )
+
                 Spacer(Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    for (t in listOf("Học tập", "Cuộc sống")) {
-                        Chip(t, tag == t) { tag = t }
+
+                OutlinedTextField(
+                    value = time,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Thời gian") },
+
+
+                    trailingIcon = {
+                        IconButton(
+                            onClick = { showTimePicker = true }
+                        ) {
+                            Text(
+                                text = "🕒",
+                                fontSize = 22.sp
+                            )
+                        }
+                    },
+
+
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = date,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Ngày thực hiện") },
+                    trailingIcon = {
+                        IconButton(
+                            onClick = {
+                                val calendar = Calendar.getInstance()
+
+                                DatePickerDialog(
+                                    context,
+                                    { _, year, month, day ->
+                                        date = "%02d/%02d/%04d".format(
+                                            day, month + 1, year
+                                        )
+                                    },
+                                    calendar.get(Calendar.YEAR),
+                                    calendar.get(Calendar.MONTH),
+                                    calendar.get(Calendar.DAY_OF_MONTH)
+                                ).show()
+                            }
+                        ) {
+                            Text("📅", fontSize = 22.sp)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(Modifier.height(12.dp))
+
+
+
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf(
+                        "Học tập",
+                        "Cuộc sống",
+                        "Làm việc",
+                        "Sức khỏe",
+                        "Giải trí",
+                        "Khác"
+                    ).chunked(3).forEach { rowItems ->
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            rowItems.forEach { category ->
+                                Chip(
+                                    label = category,
+                                    selected = tag == category,
+                                    onClick = {
+                                        tag = category
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             }
         },
-        confirmButton = {
+
+                confirmButton = {
             TextButton(
                 enabled = title.isNotBlank(),
-                onClick = { onAdd(Task(title.trim(), tag, time.trim(), false)) }
-            ) { Text("Thêm") }
+                onClick = {
+                    onAdd(
+                        Task(
+                            title = title.trim(),
+                            tag = tag,
+                            time = time,
+                            date = date,
+                            done = false
+                        )
+                    )
+                }
+            ) {
+                Text("Thêm")
+            }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Hủy") } }
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Hủy")
+            }
+        }
     )
+
+    if (showTimePicker) {
+        TimeWheelPicker(
+            initialTime = time,
+            onDismiss = {
+                showTimePicker = false
+            },
+            onConfirm = { selectedTime ->
+                time = selectedTime
+                showTimePicker = false
+            }
+        )
+    }
 }
 
 @Composable
@@ -685,7 +1204,12 @@ fun BarItem(icon: ImageVector, label: String, selected: Boolean, onClick: () -> 
 
 
 @Composable
-fun ProfileScreen(name: String, email: String, onBack: () -> Unit, onLogout: () -> Unit) {
+fun ProfileScreen(
+    name: String,
+    email: String,
+    tasks: List<Task>,
+    onBack: () -> Unit,
+    onLogout: () -> Unit) {
     val blue = Color(0xFF3355FF)
     val red =  Color(0xFFE53935)
 
@@ -696,6 +1220,14 @@ fun ProfileScreen(name: String, email: String, onBack: () -> Unit, onLogout: () 
         else -> words.first().take(1) + words.last().take(1)
     }.uppercase()
 
+    val totalTasks = tasks.size
+    val completedTasks = tasks.count {it.done}
+
+    val completionRate = if( totalTasks == 0){
+        0
+    }else{
+        completedTasks * 100 / totalTasks
+    }
     val days = listOf("T2","T3","T4","T5","T6","T7","CN")
     val values = listOf(3,5,2,4,6,1,2)
     val maxValue = values.max()
@@ -731,9 +1263,18 @@ fun ProfileScreen(name: String, email: String, onBack: () -> Unit, onLogout: () 
         Spacer(Modifier.height(24.dp))
 
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            StatCard(Modifier.weight(1f), "2", "Hoàn thành")
-            StatCard(Modifier.weight(1f), "4", "Tổng việc")
-            StatCard(Modifier.weight(1f), "50%", "Tỉ lệ")
+            StatCard(
+                Modifier.weight(1f),
+                "$completedTasks",
+                "Hoàn thành")
+            StatCard(
+                Modifier.weight(1f),
+                "$totalTasks",
+                "Tổng việc")
+            StatCard(
+                Modifier.weight(1f),
+                "$completionRate%",
+                "Tỉ lệ")
         }
         Spacer(Modifier.height(20.dp))
 
@@ -796,6 +1337,167 @@ fun StatCard(modifier: Modifier, value: String, label: String){
         ) {
             Text(value, fontSize = 22.sp, fontWeight = FontWeight.Bold)
             Text(label, fontSize = 12.sp, color = Color.Gray)
+        }
+    }
+}
+
+@Composable
+fun TimeWheelPicker(
+    initialTime: String = "08:00",
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    val parts = initialTime.split(":")
+
+    var hour by remember(initialTime) {
+        mutableIntStateOf(
+            (parts.getOrNull(0)?.toIntOrNull() ?: 8)
+                .coerceIn(0, 23)
+        )
+    }
+
+    var minute by remember(initialTime) {
+        mutableIntStateOf(
+            (parts.getOrNull(1)?.toIntOrNull() ?: 0)
+                .coerceIn(0, 59)
+        )
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Chọn thời gian") },
+        text = {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "%02d:%02d".format(hour, minute),
+                    fontSize = 30.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF3355FF)
+                )
+
+                Spacer(Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement =
+                        Arrangement.spacedBy(8.dp)
+                ) {
+                    TimeWheelColumn(
+                        values = (0..23).toList(),
+                        selected = hour,
+                        onSelect = { hour = it },
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    Text(":", fontSize = 28.sp)
+
+                    TimeWheelColumn(
+                        values = (0..59).toList(),
+                        selected = minute,
+                        onSelect = { minute = it },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    onConfirm(
+                        "%02d:%02d".format(hour, minute)
+                    )
+                }
+            ) {
+                Text("Xác nhận")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Hủy")
+            }
+        }
+    )
+}
+
+@Composable
+private fun TimeWheelColumn(
+    values: List<Int>,
+    selected: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val itemHeight = 48.dp
+
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = selected
+    )
+
+    val flingBehavior =
+        androidx.compose.foundation.gestures.snapping
+            .rememberSnapFlingBehavior(
+                lazyListState = listState
+            )
+
+    LaunchedEffect(listState, values) {
+        snapshotFlow {
+            val layout = listState.layoutInfo
+            val center = (
+                    layout.viewportStartOffset +
+                            layout.viewportEndOffset
+                    ) / 2
+
+            layout.visibleItemsInfo.minByOrNull { item ->
+                kotlin.math.abs(
+                    item.offset + item.size / 2 - center
+                )
+            }?.index
+        }.collect { index ->
+            if (index != null) {
+                values.getOrNull(index)?.let(onSelect)
+            }
+        }
+    }
+
+    LazyColumn(
+        state = listState,
+        flingBehavior = flingBehavior,
+        modifier = modifier.height(180.dp),
+        contentPadding = PaddingValues(vertical = 66.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        itemsIndexed(values) { index, value ->
+            val active = value == selected
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(itemHeight)
+                    .background(
+                        if (active) Color(0xFFE8EDFF)
+                        else Color.Transparent,
+                        RoundedCornerShape(10.dp)
+                    )
+                    .clickable {
+                        onSelect(value)
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "%02d".format(value),
+                    fontSize = if (active) 24.sp else 19.sp,
+                    fontWeight = if (active)
+                        FontWeight.Bold
+                    else
+                        FontWeight.Normal,
+                    color = if (active)
+                        Color(0xFF3355FF)
+                    else
+                        Color.Gray
+                )
+            }
         }
     }
 }
